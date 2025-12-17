@@ -13,7 +13,6 @@
     <style>
         body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; }
         
-        /* 전체 UI 컨테이너 */
         #ui-layer {
             position: fixed;
             top: 0; left: 0; width: 100%; height: 100%;
@@ -21,7 +20,34 @@
             z-index: 9999;
         }
 
-        /* 1. 상단 토글 버튼 (항상 보임) */
+        /* 시작하기(센서 권한) 오버레이 */
+        #start-overlay {
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.8);
+            z-index: 10000;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            pointer-events: auto;
+            color: white;
+            text-align: center;
+        }
+
+        #start-btn {
+            padding: 15px 30px;
+            font-size: 20px;
+            background: #ff9800;
+            color: white;
+            border: none;
+            border-radius: 30px;
+            margin-top: 20px;
+            cursor: pointer;
+            font-weight: bold;
+            box-shadow: 0 0 15px rgba(255, 152, 0, 0.5);
+        }
+
         #toggle-btn {
             position: absolute;
             top: 10px; left: 10px;
@@ -34,7 +60,6 @@
             font-size: 14px;
         }
 
-        /* 2. 검색 패널 (토글 가능) */
         #search-panel {
             pointer-events: auto;
             position: absolute;
@@ -43,50 +68,23 @@
             background: rgba(0, 0, 0, 0.8);
             padding: 15px;
             border-radius: 10px;
-            display: flex; /* 기본: 세로 배치 */
+            display: flex;
             flex-direction: column; 
             gap: 10px;
             transition: all 0.3s ease;
         }
 
-        /* 숨김 클래스 */
-        .hidden {
-            opacity: 0;
-            pointer-events: none;
-            transform: translateY(-20px);
-        }
+        .hidden { opacity: 0; pointer-events: none; transform: translateY(-20px); }
 
-        input[type="text"] {
-            padding: 10px;
-            border-radius: 5px;
-            border: none;
-            width: 90%;
-        }
+        input[type="text"] { padding: 10px; border-radius: 5px; border: none; width: 90%; }
 
-        .btn-group {
-            display: flex;
-            gap: 5px;
-        }
-
-        button.action-btn {
-            flex: 1;
-            padding: 10px;
-            border: none;
-            border-radius: 5px;
-            color: white;
-            font-weight: bold;
-            cursor: pointer;
-        }
+        .btn-group { display: flex; gap: 5px; }
+        button.action-btn { flex: 1; padding: 10px; border: none; border-radius: 5px; color: white; font-weight: bold; cursor: pointer; }
         #btn-search { background-color: #ff9800; }
         #btn-test { background-color: #2196F3; }
 
-        #status-msg {
-            color: #00ff00;
-            font-size: 12px;
-            line-height: 1.4;
-        }
+        #status-msg { color: #00ff00; font-size: 12px; line-height: 1.4; }
 
-        /* 3. 슬라이더 (오른쪽) */
         .slider-wrapper {
             position: absolute;
             right: 10px;
@@ -98,26 +96,14 @@
             flex-direction: column;
             align-items: center;
         }
-        input[type=range] {
-            writing-mode: bt-lr; 
-            -webkit-appearance: slider-vertical;
-            width: 8px;
-            height: 100%;
-        }
+        input[type=range] { writing-mode: bt-lr; -webkit-appearance: slider-vertical; width: 8px; height: 100%; }
 
-        /* ★ 가로 모드 (Landscape) 최적화 ★ */
         @media (orientation: landscape) {
             #search-panel {
-                width: 90%; /* 가로로 넓게 */
-                left: 5%;
-                top: 10px;
-                flex-direction: row; /* 가로 배치로 변경 */
-                align-items: center;
-                padding: 5px 10px;
+                width: 90%; left: 5%; top: 10px;
+                flex-direction: row; align-items: center; padding: 5px 10px;
             }
-            
-            #toggle-btn { display: none; } /* 가로에선 토글 버튼 숨기고 그냥 바 형태로 */
-            
+            #toggle-btn { display: none; }
             input[type="text"] { width: 40%; margin-right: 5px; }
             .btn-group { width: 30%; }
             #status-msg { width: 30%; font-size: 11px; margin-left: 10px; text-align: left;}
@@ -126,6 +112,17 @@
 </head>
 
 <body>
+    <!-- 시작 오버레이 (센서 권한용) -->
+    <div id="start-overlay">
+        <h2>AR 산봉우리 찾기</h2>
+        <p>정확한 위치 표시를 위해<br>나침반/센서 권한이 필요합니다.</p>
+        <button id="start-btn" onclick="requestPermissions()">AR 시작하기</button>
+        <p style="font-size:12px; color:#aaa; margin-top:20px;">
+            * 브레이브 브라우저는 주소창 사자 아이콘(Shields)에서<br>
+            '모션 센서 차단'을 해제해야 할 수 있습니다.
+        </p>
+    </div>
+
     <a-scene
         vr-mode-ui="enabled: false"
         embedded
@@ -137,22 +134,17 @@
     </a-scene>
 
     <div id="ui-layer">
-        <!-- 토글 버튼 -->
         <button id="toggle-btn" onclick="toggleUI()">👁 검색창 닫기</button>
 
-        <!-- 검색 패널 -->
         <div id="search-panel">
             <input type="text" id="mt-input" placeholder="산 이름 (예: 지리산)">
-            
             <div class="btn-group">
                 <button id="btn-search" class="action-btn" onclick="searchMountain()">검색</button>
                 <button id="btn-test" class="action-btn" onclick="addTestPin()">테스트핀</button>
             </div>
-
             <div id="status-msg">GPS 신호 대기중...</div>
         </div>
 
-        <!-- 슬라이더 -->
         <div class="slider-wrapper">
             <div style="color:white; font-weight:bold; margin-bottom:5px;"><span id="range-val">50</span>km</div>
             <input type="range" id="dist-slider" min="1" max="50" value="50" step="1">
@@ -167,45 +159,61 @@
         let userLng = 0;
         let currentData = [];
 
-        // UI 토글 기능
-        function toggleUI() {
-            const panel = document.getElementById('search-panel');
-            const btn = document.getElementById('toggle-btn');
-            panel.classList.toggle('hidden');
-            if(panel.classList.contains('hidden')) {
-                btn.innerText = "🔍 검색창 열기";
+        // ★ 센서 권한 요청 함수 (브레이브/iOS 대응) ★
+        function requestPermissions() {
+            // 1. 오버레이 숨기기
+            document.getElementById('start-overlay').style.display = 'none';
+
+            // 2. iOS 13+ 및 일부 브라우저를 위한 권한 요청
+            if (typeof DeviceMotionEvent.requestPermission === 'function') {
+                DeviceMotionEvent.requestPermission()
+                    .then(response => {
+                        if (response == 'granted') {
+                            // 권한 허용됨
+                            initGPS();
+                        } else {
+                            alert('센서 권한이 거부되었습니다. AR이 작동하지 않을 수 있습니다.');
+                        }
+                    })
+                    .catch(console.error);
             } else {
-                btn.innerText = "👁 검색창 닫기";
+                // 안드로이드/일반 크롬은 자동 허용
+                initGPS();
             }
         }
 
-        window.onload = () => {
-            // 슬라이더 이벤트
-            document.getElementById('dist-slider').addEventListener('input', (e) => {
-                document.getElementById('range-val').innerText = e.target.value;
-                renderPlaces(e.target.value);
-            });
-
-            // GPS 시작
+        function initGPS() {
             if (navigator.geolocation) {
                 navigator.geolocation.watchPosition(position => {
                     userLat = position.coords.latitude;
                     userLng = position.coords.longitude;
                     document.getElementById('status-msg').innerText = `✅ GPS 연결됨\n(${userLat.toFixed(4)}, ${userLng.toFixed(4)})`;
                     
-                    // 위치 갱신 시 재렌더링
                     if(currentData.length > 0) renderPlaces(document.getElementById('dist-slider').value);
                 }, err => {
                     document.getElementById('status-msg').innerText = "❌ GPS 권한 없음";
                 }, { enableHighAccuracy: true });
             }
+        }
+
+        function toggleUI() {
+            const panel = document.getElementById('search-panel');
+            const btn = document.getElementById('toggle-btn');
+            panel.classList.toggle('hidden');
+            btn.innerText = panel.classList.contains('hidden') ? "🔍 검색창 열기" : "👁 검색창 닫기";
+        }
+
+        window.onload = () => {
+            document.getElementById('dist-slider').addEventListener('input', (e) => {
+                document.getElementById('range-val').innerText = e.target.value;
+                renderPlaces(e.target.value);
+            });
+            // requestPermissions()는 버튼 클릭 시 실행됨
         };
 
-        // ★ 테스트 핀 추가 (AR 작동 여부 확인용) ★
         function addTestPin() {
             if(userLat === 0) { alert("GPS가 잡혀야 테스트할 수 있습니다."); return; }
             
-            // 내 위치에서 북쪽으로 0.002도 (약 200m) 떨어진 곳에 가짜 산 생성
             const testData = {
                 name: "테스트 핀",
                 mtName: "(내 앞 200m)",
@@ -213,13 +221,10 @@
                 lng: userLng,
                 alt: 100
             };
-            currentData = [testData]; // 기존 데이터 지우고 테스트 데이터만
+            currentData = [testData];
             renderPlaces(50);
             alert("북쪽(N) 방향을 보세요. 빨간 핀이 보이면 AR 정상입니다.");
-            
-            // 모바일에서 키패드 닫기
             document.getElementById('mt-input').blur();
-            // UI 숨기기
             toggleUI(); 
         }
 
@@ -230,8 +235,6 @@
 
             const status = document.getElementById('status-msg');
             status.innerText = "API 요청 중...";
-
-            // 키패드 닫기
             document.getElementById('mt-input').blur();
 
             const queryParams = `?serviceKey=${API_KEY}&numOfRows=100&pageNo=1&type=json&srchFrtrlNm=${encodeURIComponent(keyword)}&srchPlaceTpeCd=PEAK`;
@@ -252,8 +255,6 @@
                         }));
                         status.innerText = `결과: ${currentData.length}개 발견!`;
                         renderPlaces(document.getElementById('dist-slider').value);
-                        
-                        // 검색 성공 시 UI 닫아서 화면 보여주기
                         setTimeout(() => toggleUI(), 1000); 
                     } else {
                         status.innerText = "검색 결과가 없습니다.";
@@ -289,11 +290,9 @@
                     entity.setAttribute('gps-entity-place', `latitude: ${place.lat}; longitude: ${place.lng};`);
                     entity.setAttribute('look-at', '[gps-camera]');
 
-                    // 거리 비례 크기
                     const scaleSize = 20 + (dist * 10); 
                     entity.setAttribute('scale', `${scaleSize} ${scaleSize} ${scaleSize}`);
 
-                    // 핀
                     const cone = document.createElement('a-cone');
                     cone.setAttribute('color', 'red');
                     cone.setAttribute('radius-bottom', '0.1'); 
@@ -301,7 +300,6 @@
                     cone.setAttribute('height', '3');
                     cone.setAttribute('position', '0 5 0'); 
 
-                    // 텍스트
                     const text = document.createElement('a-text');
                     text.setAttribute('value', `${place.mtName} ${place.name}\n(${dist.toFixed(1)}km)`);
                     text.setAttribute('align', 'center');
