@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>전국 산봉우리 AR</title>
+    <title>실시간 산봉우리 검색 AR</title>
 
     <script src="https://aframe.io/releases/1.3.0/aframe.min.js"></script>
     <script src="https://unpkg.com/aframe-look-at-component@0.8.0/dist/aframe-look-at-component.min.js"></script>
@@ -23,42 +23,53 @@
             justify-content: space-between;
         }
 
-        #info-panel {
-            background: rgba(0, 0, 0, 0.7);
-            color: #fff;
-            padding: 15px;
-            font-size: 14px;
-            text-align: left;
-            position: absolute;
-            top: 10px; left: 10px;
-            border-radius: 10px;
+        /* 검색창 영역 */
+        #search-box {
             pointer-events: auto;
-            max-width: 80%;
-            backdrop-filter: blur(5px);
+            background: rgba(0, 0, 0, 0.6);
+            padding: 15px;
+            margin: 10px;
+            border-radius: 10px;
+            display: flex;
+            gap: 5px;
+        }
+        
+        #mt-input {
+            width: 100%;
+            padding: 10px;
+            border-radius: 5px;
+            border: none;
+            font-size: 16px;
         }
 
-        .loader {
-            display: inline-block;
-            width: 15px;
-            height: 15px;
-            border: 3px solid rgba(255,255,255,.3);
-            border-radius: 50%;
-            border-top-color: #fff;
-            animation: spin 1s ease-in-out infinite;
+        #search-btn {
+            padding: 10px 15px;
+            border-radius: 5px;
+            border: none;
+            background-color: #ff9800;
+            color: white;
+            font-weight: bold;
+            cursor: pointer;
         }
-        @keyframes spin { to { transform: rotate(360deg); } }
 
+        #status-msg {
+            color: white;
+            font-size: 12px;
+            margin-top: 5px;
+        }
+
+        /* 슬라이더 */
         .slider-wrapper {
             position: absolute;
             right: 20px;
             top: 50%;
             transform: translateY(-50%);
-            height: 250px;
+            height: 200px;
             display: flex;
             flex-direction: column;
             align-items: center;
             pointer-events: auto;
-            background: rgba(0,0,0,0.6);
+            background: rgba(0,0,0,0.5);
             border-radius: 20px;
             padding: 15px 5px;
         }
@@ -77,27 +88,8 @@
             margin-bottom: 10px;
         }
 
-        #capture-btn {
-            position: absolute;
-            left: 50%;
-            transform: translateX(-50%);
-            bottom: 30px;
-            width: 70px;
-            height: 70px;
-            background-color: white;
-            border-radius: 50%;
-            border: 5px solid rgba(200,200,200,0.5);
-            pointer-events: auto;
-            cursor: pointer;
-            font-size: 30px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-
         @media (orientation: landscape) {
             .slider-wrapper { right: 40px; }
-            #capture-btn { bottom: 20px; }
         }
     </style>
 </head>
@@ -114,115 +106,99 @@
     </a-scene>
 
     <div id="ui-container">
-        <div id="info-panel">
-            <strong>위치 탐색 중...</strong><br>
-            <span style="font-size:12px; color:#ccc;">GPS 신호를 기다리고 있습니다.</span>
+        <!-- 검색창 -->
+        <div id="search-box">
+            <div style="width:100%">
+                <div style="display:flex; gap:5px;">
+                    <input type="text" id="mt-input" placeholder="산 이름 (예: 지리산, 만복대)">
+                    <button id="search-btn" onclick="searchMountain()">검색</button>
+                </div>
+                <div id="status-msg">GPS 수신 대기중...</div>
+            </div>
         </div>
 
+        <!-- 거리 조절 슬라이더 -->
         <div class="slider-wrapper">
-            <div class="range-label"><span id="range-val">20</span>km</div>
-            <!-- 데이터 부하를 줄이기 위해 기본 20km, 최대 50km -->
-            <input type="range" id="dist-slider" min="1" max="50" value="20" step="1">
+            <div class="range-label"><span id="range-val">50</span>km</div>
+            <input type="range" id="dist-slider" min="1" max="50" value="50" step="1">
         </div>
-
-        <button id="capture-btn">📷</button>
     </div>
 
     <script>
+        // ★ API 설정 (사용자님의 Decoding 키 적용됨)
+        const API_KEY = "aefb2d81d98a261063b5a55e928504fd246622cdc34f474da0ffc56447df5e4a";
+        const API_URL = "https://apis.data.go.kr/B553662/peakPoiInfoService/getPeakPoiInfoList";
+
         let userLat = 0;
         let userLng = 0;
-        let loadedData = []; // API로 받아온 데이터를 저장할 곳
-        let isDataLoaded = false;
+        let currentData = [];
 
         window.onload = () => {
             const slider = document.getElementById('dist-slider');
-            slider.addEventListener('change', (e) => {
-                // 슬라이더 조작이 끝나면(손 떼면) 데이터 다시 불러오기
-                document.getElementById('range-val').innerText = e.target.value;
-                if(userLat !== 0) fetchOSMData(userLat, userLng, e.target.value);
-            });
-            
             slider.addEventListener('input', (e) => {
-                 // 슬라이더 움직이는 동안 숫자만 변경
-                 document.getElementById('range-val').innerText = e.target.value;
+                document.getElementById('range-val').innerText = e.target.value;
+                renderPlaces(e.target.value); // 슬라이더 움직이면 즉시 거리 필터링
             });
-
-            document.getElementById('capture-btn').addEventListener('click', takeScreenshot);
 
             if (navigator.geolocation) {
                 navigator.geolocation.watchPosition(position => {
                     userLat = position.coords.latitude;
                     userLng = position.coords.longitude;
+                    document.getElementById('status-msg').innerText = `내 위치: ${userLat.toFixed(4)}, ${userLng.toFixed(4)}`;
                     
-                    // 최초 1회만 데이터 로딩
-                    if (!isDataLoaded) {
-                        fetchOSMData(userLat, userLng, slider.value);
-                        isDataLoaded = true;
-                    }
+                    // 위치가 갱신되면 AR 핀 거리정보 업데이트
+                    if(currentData.length > 0) renderPlaces(slider.value);
 
-                    // 위치가 바뀌면 AR 거리 업데이트 (데이터 재로딩은 안함)
-                    if(loadedData.length > 0) {
-                        updateARObjects(slider.value);
-                    }
-                    
                 }, error => {
-                    document.getElementById('info-panel').innerHTML = "🚨 GPS 권한이 필요합니다.";
-                }, {
-                    enableHighAccuracy: true,
-                    maximumAge: 0,
-                    timeout: 27000
-                });
+                    document.getElementById('status-msg').innerText = "GPS 권한이 필요합니다.";
+                }, { enableHighAccuracy: true });
             }
         };
 
-        // ★ 핵심: OpenStreetMap(Overpass API)에서 주변 산 정보 가져오기 ★
-        function fetchOSMData(lat, lng, radiusKm) {
-            const panel = document.getElementById('info-panel');
-            panel.innerHTML = `<div class="loader"></div> 주변 산 검색 중... (${radiusKm}km)`;
+        // ★ 오픈API 호출 함수 (프록시 사용) ★
+        function searchMountain() {
+            const keyword = document.getElementById('mt-input').value;
+            if(!keyword) { alert("산 이름을 입력하세요"); return; }
 
-            const radiusMeters = radiusKm * 1000;
-            
-            // Overpass QL 쿼리: 내 주변(around)의 natural=peak(봉우리) 또는 natural=saddle(고개) 검색
-            // 이름(name)이 있는 것만 가져옴
-            const query = `
-                [out:json][timeout:25];
-                (
-                  node["natural"="peak"]["name"](around:${radiusMeters}, ${lat}, ${lng});
-                  node["natural"="saddle"]["name"](around:${radiusMeters}, ${lat}, ${lng});
-                  node["natural"="bare_rock"]["name"](around:${radiusMeters}, ${lat}, ${lng});
-                );
-                out body;
-            `;
+            const status = document.getElementById('status-msg');
+            status.innerText = `'${keyword}' 검색 중...`;
 
-            const url = "https://overpass-api.de/api/interpreter?data=" + encodeURIComponent(query);
+            // CORS 우회를 위한 프록시 URL (allorigins.win 사용)
+            // 실제 요청: Proxy -> 공공데이터포털 -> Proxy -> 내 폰
+            const queryParams = `?serviceKey=${API_KEY}&numOfRows=100&pageNo=1&type=json&srchFrtrlNm=${encodeURIComponent(keyword)}&srchPlaceTpeCd=PEAK`;
+            const targetUrl = API_URL + queryParams;
+            const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}`;
 
-            fetch(url)
+            fetch(proxyUrl)
                 .then(response => response.json())
                 .then(data => {
-                    loadedData = []; // 초기화
-                    
-                    if(data.elements && data.elements.length > 0) {
-                        data.elements.forEach(el => {
-                            loadedData.push({
-                                name: el.tags.name,
-                                lat: el.lat,
-                                lng: el.lon,
-                                type: el.tags.natural // peak, saddle 등 구분 가능
-                            });
-                        });
+                    console.log(data); // 디버깅용
+                    const items = data.response?.body?.items?.item;
+
+                    if (items) {
+                        // 결과가 1개일 경우 배열로 변환
+                        const list = Array.isArray(items) ? items : [items];
                         
-                        panel.innerHTML = `✅ <strong>${loadedData.length}개</strong>의 봉우리/고개를 찾았습니다.<br>
-                                           <span style="font-size:12px">내 위치: ${lat.toFixed(4)}, ${lng.toFixed(4)}</span>`;
-                        
-                        // AR 오브젝트 생성
-                        updateARObjects(radiusKm);
+                        // 데이터 파싱
+                        currentData = list.map(item => ({
+                            name: item.placeNm,        // 봉우리 이름 (예: 천왕봉)
+                            mtName: item.frtrlNm,      // 산 이름 (예: 지리산)
+                            lat: parseFloat(item.lat),
+                            lng: parseFloat(item.lot), // API 명세상 lot가 경도
+                            alt: item.aslAltide        // 해발고도
+                        }));
+
+                        status.innerText = `검색 완료! ${currentData.length}개의 봉우리를 찾았습니다.`;
+                        renderPlaces(document.getElementById('dist-slider').value);
                     } else {
-                        panel.innerHTML = `⚠️ 주변 ${radiusKm}km 내에 등록된 산이 없습니다.`;
+                        status.innerText = "검색 결과가 없습니다. (정확한 산/봉우리 이름을 입력하세요)";
+                        currentData = [];
+                        renderPlaces(50);
                     }
                 })
                 .catch(err => {
                     console.error(err);
-                    panel.innerHTML = "❌ 데이터 수신 실패 (인터넷 확인)";
+                    status.innerText = "API 호출 실패 (통신 오류)";
                 });
         }
 
@@ -236,11 +212,11 @@
             return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
         }
 
-        function updateARObjects(rangeKm) {
+        function renderPlaces(rangeKm) {
             const container = document.getElementById('places-container');
-            container.innerHTML = ''; // 기존 핀 삭제
+            container.innerHTML = ''; 
 
-            loadedData.forEach(place => {
+            currentData.forEach(place => {
                 const dist = calculateDistance(userLat, userLng, place.lat, place.lng);
 
                 if (dist <= rangeKm) {
@@ -248,44 +224,20 @@
                     entity.setAttribute('gps-entity-place', `latitude: ${place.lat}; longitude: ${place.lng};`);
                     entity.setAttribute('look-at', '[gps-camera]');
 
-                    // 거리 비례 크기 조절
+                    // 거리 비례 크기 (멀수록 크게)
                     const scaleSize = 20 + (dist * 10); 
                     entity.setAttribute('scale', `${scaleSize} ${scaleSize} ${scaleSize}`);
 
-                    // 1. 핀 (봉우리는 빨강, 고개/기타는 파랑)
+                    // 1. 핀
                     const cone = document.createElement('a-cone');
-                    const pinColor = (place.type === 'peak') ? 'red' : '#0099ff'; // 봉우리=빨강, 고개=파랑
-                    
-                    cone.setAttribute('color', pinColor);
+                    cone.setAttribute('color', 'red');
                     cone.setAttribute('radius-bottom', '0.1'); 
                     cone.setAttribute('radius-top', '1');
                     cone.setAttribute('height', '3');
                     cone.setAttribute('position', '0 5 0'); 
-                    cone.setAttribute('opacity', '0.9');
 
-                    // 2. 텍스트
+                    // 2. 텍스트 (산이름 + 봉우리명)
                     const text = document.createElement('a-text');
-                    text.setAttribute('value', `${place.name}\n(${dist.toFixed(1)}km)`);
+                    // 예: 지리산 천왕봉 (10.5km)
+                    text.setAttribute('value', `${place.mtName} ${place.name}\n(${dist.toFixed(1)}km)`);
                     text.setAttribute('align', 'center');
-                    text.setAttribute('color', 'white');
-                    text.setAttribute('position', '0 8 0'); 
-                    
-                    // 텍스트 배경
-                    text.setAttribute('geometry', 'primitive: plane; width: auto; height: auto;');
-                    text.setAttribute('material', 'color: black; opacity: 0.6;');
-
-                    entity.appendChild(cone);
-                    entity.appendChild(text);
-                    container.appendChild(entity);
-                }
-            });
-        }
-
-        function takeScreenshot() {
-            const ui = document.getElementById('ui-container');
-            ui.style.display = 'none';
-            setTimeout(() => { ui.style.display = 'flex'; }, 3000);
-        }
-    </script>
-</body>
-</html>
