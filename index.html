@@ -23,19 +23,19 @@
             justify-content: space-between;
         }
 
-        /* 검색창 영역 */
         #search-box {
             pointer-events: auto;
-            background: rgba(0, 0, 0, 0.6);
+            background: rgba(0, 0, 0, 0.7);
             padding: 15px;
             margin: 10px;
             border-radius: 10px;
             display: flex;
+            flex-direction: column;
             gap: 5px;
         }
         
         #mt-input {
-            width: 100%;
+            width: 95%;
             padding: 10px;
             border-radius: 5px;
             border: none;
@@ -43,22 +43,23 @@
         }
 
         #search-btn {
-            padding: 10px 15px;
+            padding: 10px;
             border-radius: 5px;
             border: none;
             background-color: #ff9800;
             color: white;
             font-weight: bold;
             cursor: pointer;
-        }
-
-        #status-msg {
-            color: white;
-            font-size: 12px;
             margin-top: 5px;
         }
 
-        /* 슬라이더 */
+        #status-msg {
+            color: #00ff00; /* 잘 보이게 형광색 */
+            font-size: 13px;
+            margin-top: 5px;
+            font-weight: bold;
+        }
+
         .slider-wrapper {
             position: absolute;
             right: 20px;
@@ -81,16 +82,7 @@
             height: 100%;
         }
 
-        .range-label {
-            color: white;
-            font-weight: bold;
-            font-size: 14px;
-            margin-bottom: 10px;
-        }
-
-        @media (orientation: landscape) {
-            .slider-wrapper { right: 40px; }
-        }
+        .range-label { color: white; font-weight: bold; font-size: 14px; margin-bottom: 10px; }
     </style>
 </head>
 
@@ -101,23 +93,20 @@
         arjs="sourceType: webcam; debugUIEnabled: false; videoTexture: true;"
         renderer="logarithmicDepthBuffer: true; precision: medium;">
 
+        <!-- GPS 카메라 설정 -->
         <a-camera gps-camera="minDistance: 5;" rotation-reader></a-camera>
         <a-entity id="places-container"></a-entity>
     </a-scene>
 
     <div id="ui-container">
-        <!-- 검색창 -->
         <div id="search-box">
-            <div style="width:100%">
-                <div style="display:flex; gap:5px;">
-                    <input type="text" id="mt-input" placeholder="산 이름 (예: 지리산, 만복대)">
-                    <button id="search-btn" onclick="searchMountain()">검색</button>
-                </div>
-                <div id="status-msg">GPS 수신 대기중...</div>
-            </div>
+            <input type="text" id="mt-input" placeholder="산 이름 (예: 지리산)">
+            <button id="search-btn" onclick="searchMountain()">검색하기</button>
+            <div id="status-msg">GPS 신호 찾는 중...</div>
+            <!-- GPS 강제 재시도 버튼 -->
+            <button onclick="startGPS()" style="font-size:10px; padding:5px; margin-top:5px;">GPS 재연결</button>
         </div>
 
-        <!-- 거리 조절 슬라이더 -->
         <div class="slider-wrapper">
             <div class="range-label"><span id="range-val">50</span>km</div>
             <input type="range" id="dist-slider" min="1" max="50" value="50" step="1">
@@ -125,80 +114,106 @@
     </div>
 
     <script>
-        // ★ API 설정 (사용자님의 Decoding 키 적용됨)
         const API_KEY = "aefb2d81d98a261063b5a55e928504fd246622cdc34f474da0ffc56447df5e4a";
         const API_URL = "https://apis.data.go.kr/B553662/peakPoiInfoService/getPeakPoiInfoList";
 
         let userLat = 0;
         let userLng = 0;
         let currentData = [];
+        let watchId = null;
 
         window.onload = () => {
             const slider = document.getElementById('dist-slider');
             slider.addEventListener('input', (e) => {
                 document.getElementById('range-val').innerText = e.target.value;
-                renderPlaces(e.target.value); // 슬라이더 움직이면 즉시 거리 필터링
+                renderPlaces(e.target.value);
             });
 
-            if (navigator.geolocation) {
-                navigator.geolocation.watchPosition(position => {
-                    userLat = position.coords.latitude;
-                    userLng = position.coords.longitude;
-                    document.getElementById('status-msg').innerText = `내 위치: ${userLat.toFixed(4)}, ${userLng.toFixed(4)}`;
-                    
-                    // 위치가 갱신되면 AR 핀 거리정보 업데이트
-                    if(currentData.length > 0) renderPlaces(slider.value);
-
-                }, error => {
-                    document.getElementById('status-msg').innerText = "GPS 권한이 필요합니다.";
-                }, { enableHighAccuracy: true });
-            }
+            // 시작하자마자 GPS 시도
+            startGPS();
         };
 
-        // ★ 오픈API 호출 함수 (프록시 사용) ★
+        function startGPS() {
+            const status = document.getElementById('status-msg');
+            status.innerText = "GPS 권한 요청 중...";
+
+            if (!navigator.geolocation) {
+                alert("이 브라우저는 GPS를 지원하지 않습니다.");
+                return;
+            }
+
+            // 기존 추적 중단 후 재시작
+            if (watchId) navigator.geolocation.clearWatch(watchId);
+
+            watchId = navigator.geolocation.watchPosition(
+                // 성공 시
+                (position) => {
+                    userLat = position.coords.latitude;
+                    userLng = position.coords.longitude;
+                    const acc = position.coords.accuracy;
+                    
+                    status.innerText = `✅ 위치 잡힘!\n위도:${userLat.toFixed(4)}\n경도:${userLng.toFixed(4)}\n(오차 ${acc}m)`;
+                    
+                    // 위치 잡히면 핀 거리 업데이트
+                    if(currentData.length > 0) renderPlaces(document.getElementById('dist-slider').value);
+                },
+                // 실패 시
+                (error) => {
+                    let errMsg = "";
+                    switch(error.code) {
+                        case 1: errMsg = "권한 거부됨 (설정에서 허용해주세요)"; break;
+                        case 2: errMsg = "위치 확인 불가 (GPS 신호 약함)"; break;
+                        case 3: errMsg = "시간 초과 (재연결 눌러주세요)"; break;
+                        default: errMsg = "알 수 없는 오류"; break;
+                    }
+                    status.innerText = "❌ " + errMsg;
+                    // 사용자에게 팝업으로 알려줌
+                    // alert("GPS 오류: " + errMsg); 
+                },
+                // 옵션 (중요)
+                {
+                    enableHighAccuracy: true, // 정확도 우선
+                    timeout: 20000,           // 20초 기다림
+                    maximumAge: 0             // 캐시된 위치 사용 안 함
+                }
+            );
+        }
+
         function searchMountain() {
             const keyword = document.getElementById('mt-input').value;
             if(!keyword) { alert("산 이름을 입력하세요"); return; }
+            if(userLat === 0) { alert("GPS 위치가 잡혀야 검색할 수 있습니다."); return; }
 
             const status = document.getElementById('status-msg');
-            status.innerText = `'${keyword}' 검색 중...`;
+            status.innerText = `'${keyword}' API 요청 중...`;
 
-            // CORS 우회를 위한 프록시 URL (allorigins.win 사용)
-            // 실제 요청: Proxy -> 공공데이터포털 -> Proxy -> 내 폰
             const queryParams = `?serviceKey=${API_KEY}&numOfRows=100&pageNo=1&type=json&srchFrtrlNm=${encodeURIComponent(keyword)}&srchPlaceTpeCd=PEAK`;
-            const targetUrl = API_URL + queryParams;
-            const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}`;
+            const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(API_URL + queryParams)}`;
 
             fetch(proxyUrl)
                 .then(response => response.json())
                 .then(data => {
-                    console.log(data); // 디버깅용
                     const items = data.response?.body?.items?.item;
-
                     if (items) {
-                        // 결과가 1개일 경우 배열로 변환
                         const list = Array.isArray(items) ? items : [items];
-                        
-                        // 데이터 파싱
                         currentData = list.map(item => ({
-                            name: item.placeNm,        // 봉우리 이름 (예: 천왕봉)
-                            mtName: item.frtrlNm,      // 산 이름 (예: 지리산)
+                            name: item.placeNm,
+                            mtName: item.frtrlNm,
                             lat: parseFloat(item.lat),
-                            lng: parseFloat(item.lot), // API 명세상 lot가 경도
-                            alt: item.aslAltide        // 해발고도
+                            lng: parseFloat(item.lot),
+                            alt: item.aslAltide
                         }));
-
-                        status.innerText = `검색 완료! ${currentData.length}개의 봉우리를 찾았습니다.`;
+                        status.innerText = `✅ ${currentData.length}개 봉우리 발견!`;
                         renderPlaces(document.getElementById('dist-slider').value);
                     } else {
-                        status.innerText = "검색 결과가 없습니다. (정확한 산/봉우리 이름을 입력하세요)";
+                        status.innerText = "⚠️ 검색 결과 없음. 다른 이름으로 시도해보세요.";
                         currentData = [];
                         renderPlaces(50);
                     }
                 })
                 .catch(err => {
                     console.error(err);
-                    status.innerText = "API 호출 실패 (통신 오류)";
+                    status.innerText = "❌ API 통신 오류";
                 });
         }
 
@@ -224,11 +239,9 @@
                     entity.setAttribute('gps-entity-place', `latitude: ${place.lat}; longitude: ${place.lng};`);
                     entity.setAttribute('look-at', '[gps-camera]');
 
-                    // 거리 비례 크기 (멀수록 크게)
                     const scaleSize = 20 + (dist * 10); 
                     entity.setAttribute('scale', `${scaleSize} ${scaleSize} ${scaleSize}`);
 
-                    // 1. 핀
                     const cone = document.createElement('a-cone');
                     cone.setAttribute('color', 'red');
                     cone.setAttribute('radius-bottom', '0.1'); 
@@ -236,8 +249,20 @@
                     cone.setAttribute('height', '3');
                     cone.setAttribute('position', '0 5 0'); 
 
-                    // 2. 텍스트 (산이름 + 봉우리명)
                     const text = document.createElement('a-text');
-                    // 예: 지리산 천왕봉 (10.5km)
                     text.setAttribute('value', `${place.mtName} ${place.name}\n(${dist.toFixed(1)}km)`);
                     text.setAttribute('align', 'center');
+                    text.setAttribute('color', 'white');
+                    text.setAttribute('position', '0 10 0'); 
+                    text.setAttribute('geometry', 'primitive: plane; width: auto; height: auto;');
+                    text.setAttribute('material', 'color: black; opacity: 0.6;');
+
+                    entity.appendChild(cone);
+                    entity.appendChild(text);
+                    container.appendChild(entity);
+                }
+            });
+        }
+    </script>
+</body>
+</html>
